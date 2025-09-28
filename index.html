@@ -4,26 +4,38 @@
   <meta charset="UTF-8">
   <title>BikeSafe TO</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <style>
-    body, html { margin:0; padding:0; height:100%; font-family: Arial, sans-serif; }
-    #map { height:100%; width:100%; }
+<style>
+  body, html { margin:0; padding:0; height:100%; font-family: Arial, sans-serif; }
+  #map { height:100%; width:100%; }
 
-    .popup-buttons, .popup-edit { display:flex; flex-direction:column; gap:5px; text-align:center; }
-    .hazard-btn, .popup-edit button { padding:5px 10px; font-size:14px; font-weight:bold; cursor:pointer; border:none; border-radius:5px; color:white; }
-    .Construction { background-color: orange; }
-    .PoorRoad { background-color: red; }
-    .Debris { background-color: yellow; color:black; }
+  .popup-buttons, .popup-edit { display:flex; flex-direction:column; gap:10px; text-align:center; }
 
-    .legend { background:white; padding:16px; line-height:1.8; border-radius:7px; box-shadow:0 0 5px rgba(0,0,0,0.3); font-size:16px; min-width:180px; }
-    .legend span { display:inline-block; width:12px; height:12px; margin-right:5px; vertical-align:middle; }
-    .legend h4 { margin:0 0 7px 0; font-size:16px; }
+  /* Double the size of buttons */
+  .hazard-btn, .popup-edit button { 
+    padding:10px 20px; 
+    font-size:28px; 
+    font-weight:bold; 
+    cursor:pointer; 
+    border:none; 
+    border-radius:5px; 
+    color:white; 
+  }
 
-    #notification { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:5px; display:none; font-weight:bold; z-index:1000; box-shadow:0 0 5px rgba(0,0,0,0.3); }
+  .Construction { background-color: orange; }
+  .PoorRoad { background-color: red; }
+  .Debris { background-color: yellow; color:black; }
 
-    /* Edit/Delete button colors */
-    .popup-edit button:nth-child(1) { background-color: #007bff; } /* Edit */
-    .popup-edit button:nth-child(2) { background-color: #dc3545; } /* Delete */
-  </style>
+  .legend { background:white; padding:16px; line-height:1.8; border-radius:7px; box-shadow:0 0 5px rgba(0,0,0,0.3); font-size:16px; min-width:180px; }
+  .legend span { display:inline-block; width:12px; height:12px; margin-right:5px; vertical-align:middle; }
+  .legend h4 { margin:0 0 7px 0; font-size:16px; }
+
+  #notification { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:5px; display:none; font-weight:bold; z-index:1000; box-shadow:0 0 5px rgba(0,0,0,0.3); }
+
+  /* Edit/Delete button colors */
+  .popup-edit button:nth-child(1) { background-color: #007bff; } /* Edit */
+  .popup-edit button:nth-child(2) { background-color: #dc3545; } /* Delete */
+</style>
+
 </head>
 <body>
 
