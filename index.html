@@ -10,7 +10,7 @@
   #map { height:100%; width:100%; }
   .popup-buttons, .popup-edit { display:flex; flex-direction:column; gap:10px; text-align:center; }
   .hazard-btn, .popup-edit button { 
-    padding:10px 20px; font-size:28px; font-weight:bold; cursor:pointer; border:none; border-radius:5px; color:white; 
+    padding:10px 20px; font-size:22px; font-weight:bold; cursor:pointer; border:none; border-radius:5px; color:white; 
   }
   .Construction { background-color: orange; }
   .PoorRoad { background-color: red; }
@@ -36,45 +36,27 @@ const SHEETDB_URL = 'https://sheetdb.io/api/v1/k1z7j20dp9lms';
 const HAZARD_LIFETIME_DAYS = 7;
 let nextId = 1;
 const markers = {};
+let tempMarker = null;
 
+// ------------------
 // Initialize map
-var map = L.map('map').setView([43.65107, -79.347015], 12);
+const map = L.map('map').setView([43.65107, -79.347015], 12);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    subdomains: 'abcd', maxZoom: 19
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd', maxZoom: 19
 }).addTo(map);
 
 // ------------------
-// Bike lane colors
+// Utility functions
 function getBikeLaneColor(type){
   if(!type) return "gray";
-  type = type.trim().toLowerCase();
+  type = type.toLowerCase();
   if(type.includes("signed route") || type.includes("sharrow")) return "#007bff";
   if(type.includes("bike lane") || type.includes("contraflow")) return "#28a745";
   if(type.includes("multi-use trail") || type.includes("cycle track") || type.includes("park road")) return "#6f42c1";
   return "gray";
 }
 
-// Load bike lanes
-fetch('toronto_bike_lanes.geojson')
-  .then(res => res.json())
-  .then(bikeGeoJSON => {
-    L.geoJSON(bikeGeoJSON, {
-      style: function(feature) {
-        const type = feature.properties.INFRA_HIGHORDER || feature.properties.INFRA_LOWORDER;
-        return { color: getBikeLaneColor(type), weight: 4, opacity: 0.8 };
-      },
-      onEachFeature: function(feature, layer) {
-        const name = feature.properties.STREET_NAME || "Bike Lane";
-        const type = feature.properties.INFRA_HIGHORDER || feature.properties.INFRA_LOWORDER;
-        layer.bindPopup(`<b>${name}</b><br>${type}`);
-      }
-    }).addTo(map);
-  })
-  .catch(err => console.error("Error loading GeoJSON:", err));
-
-// ------------------
-// Hazards
 function getColor(type){
   switch(type){
     case "Construction": return "orange";
@@ -103,25 +85,89 @@ function showNotification(type){
   setTimeout(()=>{ notif.style.display='none'; }, 5000);
 }
 
+// ------------------
+// Marker functions
 function generatePopupContent(id,type,timestamp){
   return `<b>Hazard:</b> ${type}<br><b>Reported:</b> ${timeAgo(timestamp)}<br>
     <div class="popup-edit">
-      <button onclick="editHazard('${id}')">Edit</button>
-      <button onclick="deleteHazard('${id}')">Delete</button>
+      <button class="edit-btn" data-id="${id}">Edit</button>
+      <button class="delete-btn" data-id="${id}">Delete</button>
     </div>`;
 }
 
-function createMarker(id,latlng,type,timestamp){
-  const marker = L.circleMarker(latlng,{ color:getColor(type), radius:16, fillOpacity:0.7 }).addTo(map);
+function createMarker(id, latlng, type, timestamp){
+  const marker = L.circleMarker(latlng, { color:getColor(type), radius:16, fillOpacity:0.7 }).addTo(map);
   marker.bindPopup(generatePopupContent(id,type,timestamp));
+
+  marker.on('popupopen', function(){
+    const popupEl = marker.getPopup().getElement();
+    if(!popupEl) return;
+
+    // Edit button
+    popupEl.querySelectorAll('.edit-btn').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        const hazard = markers[id];
+        if(!hazard) return;
+        const editPopup = `
+          <div class="popup-buttons">
+            <b>Edit Hazard</b>
+            <button class="hazard-btn" data-type="Construction" style="background: orange;">Construction</button>
+            <button class="hazard-btn" data-type="Poor Road Condition" style="background: red;">Poor Road Condition</button>
+            <button class="hazard-btn" data-type="Debris" style="background: yellow; color:black;">Debris</button>
+          </div>`;
+        marker.setPopupContent(editPopup).openPopup();
+
+        const editEl = marker.getPopup().getElement();
+        editEl.querySelectorAll('.hazard-btn').forEach(hBtn=>{
+          hBtn.addEventListener('click', evt=>{
+            evt.stopPropagation();
+            const newType = hBtn.getAttribute('data-type');
+            hazard.type = newType;
+            marker.setStyle({ color:getColor(newType) });
+            marker.setPopupContent(generatePopupContent(id,newType,hazard.timestamp)).openPopup();
+
+            // Update SheetDB
+            fetch(`${SHEETDB_URL}/id/${id}`, {
+              method:'PATCH',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ data:[{ Type: newType }] })
+            });
+          });
+        });
+      });
+    });
+
+    // Delete button
+    popupEl.querySelectorAll('.delete-btn').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        e.stopPropagation();
+        map.removeLayer(marker);
+        delete markers[id];
+        fetch(`${SHEETDB_URL}/id/${id}`, { method:'DELETE' });
+      });
+    });
+  });
+
   markers[id] = { marker, type, timestamp };
 }
 
+// ------------------
+// Load bike lanes
+fetch('toronto_bike_lanes.geojson')
+  .then(res=>res.json())
+  .then(geojson=>{
+    L.geoJSON(geojson, {
+      style: f=>({ color:getBikeLaneColor(f.properties.INFRA_HIGHORDER||f.properties.INFRA_LOWORDER), weight:4, opacity:0.8 }),
+      onEachFeature: (f,l)=>l.bindPopup(`<b>${f.properties.STREET_NAME||'Bike Lane'}</b><br>${f.properties.INFRA_HIGHORDER||f.properties.INFRA_LOWORDER}`)
+    }).addTo(map);
+  });
+
+// ------------------
 // Load existing hazards
 fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
   if(data.length>0){
-    const ids = data.map(item=>parseInt(item.id));
-    nextId = Math.max(...ids)+1;
+    nextId = Math.max(...data.map(i=>parseInt(i.id)))+1;
   }
   data.forEach(item=>{
     if(item.Lat && item.Lng && item.Type && item.Timestamp && item.id){
@@ -133,78 +179,76 @@ fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
   });
 });
 
-// Map click to add hazard
+// ------------------
 map.on('click', function(e){
-  if(map._popup) map.closePopup();
-  const popupContent = `<div class="popup-buttons">
-      <button class="hazard-btn Construction" data-type="Construction">Construction</button>
-      <button class="hazard-btn PoorRoad" data-type="Poor Road Condition">Poor Road Condition</button>
-      <button class="hazard-btn Debris" data-type="Debris">Debris</button>
-    </div>`;
-  L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
+  // Remove previous temp marker
+  if(tempMarker){
+    map.removeLayer(tempMarker);
+  }
 
-  setTimeout(()=>{
-    document.querySelectorAll('.hazard-btn').forEach(btn=>{
-      btn.addEventListener('click', function(){
-        const type = this.getAttribute('data-type');
-        const id = nextId++;
-        const timestamp = new Date().toISOString();
-        createMarker(id, e.latlng, type, timestamp);
-        showNotification(type);
+  // Create temp marker
+  tempMarker = L.marker(e.latlng).addTo(map);
 
-        fetch(SHEETDB_URL, {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ data:[{id:id,Lat:e.latlng.lat,Lng:e.latlng.lng,Type:type,Timestamp:timestamp}] })
-        });
+  // Initial popup content
+  const initialPopup = `
+    <div class="popup-buttons">
+      <b>Location:</b><br>
+      Lat: ${e.latlng.lat.toFixed(5)}, Lng: ${e.latlng.lng.toFixed(5)}<br><br>
+      <button class="report-btn" style="padding:10px 20px; font-size:18px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer;">Report Hazard</button>
+    </div>
+  `;
+  tempMarker.bindPopup(initialPopup).openPopup();
 
-        map.closePopup();
-      });
-    });
-  },50);
-});
-// Edit hazard
-function editHazard(id){
-  const marker = markers[id].marker;
-  marker.closePopup();
-
-  const latlng = marker.getLatLng();
-  const popupContent = `<div class="popup-buttons">
-      <button class="hazard-btn Construction" data-type="Construction">Construction</button>
-      <button class="hazard-btn PoorRoad" data-type="Poor Road Condition">Poor Road Condition</button>
-      <button class="hazard-btn Debris" data-type="Debris">Debris</button>
-    </div>`;
-  
-  L.popup().setLatLng(latlng).setContent(popupContent).openOn(map);
-
+  // Small delay to ensure popup DOM exists
   setTimeout(() => {
-    document.querySelectorAll('.hazard-btn').forEach(btn => {
-      btn.addEventListener('click', function(){
-        const newType = this.getAttribute('data-type');
-        marker.setStyle({ color: getColor(newType) });
-        markers[id].type = newType;
-        marker.setPopupContent(generatePopupContent(id, newType, new Date().toISOString()));
+    const popupEl = tempMarker.getPopup().getElement();
+    if(!popupEl) return;
 
-        fetch(`${SHEETDB_URL}/id/${id}`, {
-          method:'PATCH',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ data:[{Type:newType, Timestamp:new Date().toISOString()}] })
+    const reportBtn = popupEl.querySelector('.report-btn');
+    if(reportBtn){
+      reportBtn.onclick = function(evt){
+        evt.stopPropagation();
+
+        // Show hazard type buttons
+        const hazardPopup = `
+          <div class="popup-buttons">
+            <button class="hazard-btn" data-type="Construction" style="background: orange;">Construction</button>
+            <button class="hazard-btn" data-type="Poor Road Condition" style="background: red;">Poor Road Condition</button>
+            <button class="hazard-btn" data-type="Debris" style="background: yellow; color:black;">Debris</button>
+          </div>
+        `;
+        tempMarker.setPopupContent(hazardPopup).openPopup();
+
+        const hazardPopupEl = tempMarker.getPopup().getElement();
+        hazardPopupEl.querySelectorAll('.hazard-btn').forEach(btn=>{
+          btn.onclick = function(evt){
+            evt.stopPropagation();
+            const type = btn.getAttribute('data-type');
+            const id = nextId++;
+            const timestamp = new Date().toISOString();
+
+            map.removeLayer(tempMarker);
+            tempMarker = null;
+
+            createMarker(id, e.latlng, type, timestamp);
+            showNotification(type);
+
+            // Send data to SheetDB
+            fetch(SHEETDB_URL, {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ data:[{ id, Lat:e.latlng.lat, Lng:e.latlng.lng, Type:type, Timestamp:timestamp }] })
+            });
+          };
         });
+      };
+    }
+  }, 20); // short delay ensures popup exists
+});
 
-        map.closePopup();
-      });
-    });
-  }, 50);
-}
 
-// Delete hazard
-function deleteHazard(id){
-  map.removeLayer(markers[id].marker);
-  delete markers[id];
-  fetch(`${SHEETDB_URL}/id/${id}`,{ method:'DELETE' });
-}
-
-// Add legend
+// ------------------
+// Legend
 const legend = L.control({position:'topright'});
 legend.onAdd = function(map){
   const div = L.DomUtil.create('div','legend');
@@ -222,33 +266,15 @@ legend.onAdd = function(map){
 legend.addTo(map);
 
 // ------------------
-// Canadian-only dynamic search bar using Nominatim
-// GTA bounding box: [southwest lon, southwest lat, northeast lon, northeast lat]
+// Search control
 const gtaViewbox = [-79.6393, 43.5810, -79.1169, 43.8555];
-
 const provider = new window.GeoSearch.OpenStreetMapProvider({
-  params: {
-    countrycodes: 'ca',      // limit to Canada
-    addressdetails: 1,
-    limit: 5,
-    viewbox: gtaViewbox.join(','),  // restrict to GTA
-    bounded: 1                       // enforce the bounding box
-  }
+  params:{ countrycodes:'ca', addressdetails:1, limit:5, viewbox:gtaViewbox.join(','), bounded:1 }
 });
-
 const searchControl = new window.GeoSearch.GeoSearchControl({
-  provider: provider,
-  style: 'bar',
-  showMarker: true,
-  showPopup: false,
-  autoComplete: true,
-  autoClose: true,
-  retainZoomLevel: false
+  provider: provider, style:'bar', showMarker:true, showPopup:true, autoComplete:true, autoClose:true, retainZoomLevel:false, searchLabel:'Search GTA address...'
 });
-
 map.addControl(searchControl);
-
-
 </script>
 </body>
 </html>
