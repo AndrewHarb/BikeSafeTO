@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BikeSafe TO</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body, html { margin:0; padding:0; height:100%; font-family: Arial, sans-serif; }
+    #map { height:100%; width:100%; }
+
+    .popup-buttons, .popup-edit { display:flex; flex-direction:column; gap:5px; text-align:center; }
+    .hazard-btn, .popup-edit button { padding:5px 10px; font-size:14px; font-weight:bold; cursor:pointer; border:none; border-radius:5px; color:white; }
+    .Construction { background-color: orange; }
+    .PoorRoad { background-color: red; }
+    .Debris { background-color: yellow; color:black; }
+
+    .legend { background:white; padding:16px; line-height:1.8; border-radius:7px; box-shadow:0 0 5px rgba(0,0,0,0.3); font-size:16px; min-width:180px; }
+    .legend span { display:inline-block; width:12px; height:12px; margin-right:5px; vertical-align:middle; }
+    .legend h4 { margin:0 0 7px 0; font-size:16px; }
+
+    #notification { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:5px; display:none; font-weight:bold; z-index:1000; box-shadow:0 0 5px rgba(0,0,0,0.3); }
+
+    /* Edit/Delete button colors */
+    .popup-edit button:nth-child(1) { background-color: #007bff; } /* Edit */
+    .popup-edit button:nth-child(2) { background-color: #dc3545; } /* Delete */
+  </style>
+</head>
+<body>
+
+<div id="notification"></div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const SHEETDB_URL = 'https://sheetdb.io/api/v1/k1z7j20dp9lms';
+const HAZARD_LIFETIME_DAYS = 7;
+let nextId = 1; // incremental ID
+const markers = {};
+
+// Initialize map with CARTO Voyager tiles
+var map = L.map('map').setView([43.65107, -79.347015], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19
+}).addTo(map);
+
+// -------------------------
+// Bike lane color function
+// -------------------------
+function getBikeLaneColor(type){
+  if(!type) return "gray";
+  type = type.trim().toLowerCase();
+  if(type.includes("signed route") || type.includes("sharrow")) return "#007bff"; // blue
+  if(type.includes("bike lane") || type.includes("contraflow")) return "#28a745"; // green
+  if(type.includes("multi-use trail") || type.includes("cycle track")) return "#6f42c1"; // purple
+  if(type.includes("park road")) return "#6f42c1"; // treat as trail
+  return "gray";
+}
+
+// Load Toronto Bike Lanes GeoJSON
+fetch('toronto_bike_lanes.geojson')
+  .then(res => res.json())
+  .then(bikeGeoJSON => {
+    L.geoJSON(bikeGeoJSON, {
+      style: function(feature) {
+        const type = feature.properties.INFRA_HIGHORDER || feature.properties.INFRA_LOWORDER;
+        return { color: getBikeLaneColor(type), weight: 4, opacity: 0.8 };
+      },
+      onEachFeature: function(feature, layer) {
+        const name = feature.properties.STREET_NAME || "Bike Lane";
+        const type = feature.properties.INFRA_HIGHORDER || feature.properties.INFRA_LOWORDER;
+        layer.bindPopup(`<b>${name}</b><br>${type}`);
+      }
+    }).addTo(map);
+  })
+  .catch(err => console.error("Error loading GeoJSON:", err));
+
+// -------------------------
+// Hazard functions
+// -------------------------
+function getColor(type){
+  switch(type){
+    case "Construction": return "orange";
+    case "Poor Road Condition": return "red";
+    case "Debris": return "yellow";
+    default: return "blue";
+  }
+}
+
+function timeAgo(isoDate){
+  const now = new Date(), report = new Date(isoDate);
+  const diff = Math.floor((now - report)/1000);
+  if(diff < 60) return `${diff} seconds ago`;
+  if(diff < 3600) return `${Math.floor(diff/60)} minutes ago`;
+  if(diff < 86400) return `${Math.floor(diff/3600)} hours ago`;
+  return `${Math.floor(diff/86400)} days ago`;
+}
+
+function showNotification(type){
+  const notif = document.getElementById('notification');
+  const emoji = type==="Construction"? "🚧" : type==="Poor Road Condition"? "🛑" : "⚠️";
+  notif.textContent = `${emoji} ${type} reported!`;
+  notif.style.background = getColor(type);
+  notif.style.color = (type==="Debris") ? "black" : "white";
+  notif.style.display = 'block';
+  setTimeout(()=>{ notif.style.display='none'; }, 5000);
+}
+
+function generatePopupContent(id,type,timestamp){
+  return `<b>Hazard:</b> ${type}<br><b>Reported:</b> ${timeAgo(timestamp)}<br>
+    <div class="popup-edit">
+      <button onclick="editHazard('${id}')">Edit</button>
+      <button onclick="deleteHazard('${id}')">Delete</button>
+    </div>`;
+}
+
+function createMarker(id,latlng,type,timestamp){
+  const marker = L.circleMarker(latlng,{ color:getColor(type), radius:16, fillOpacity:0.7 }).addTo(map);
+  marker.bindPopup(generatePopupContent(id,type,timestamp));
+  markers[id] = { marker, type, timestamp };
+}
+
+// Load existing hazards from SheetDB
+fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
+  if(data.length>0){
+    const ids = data.map(item=>parseInt(item.id));
+    nextId = Math.max(...ids)+1;
+  }
+  data.forEach(item=>{
+    if(item.Lat && item.Lng && item.Type && item.Timestamp && item.id){
+      const ageDays = (new Date() - new Date(item.Timestamp))/(1000*60*60*24);
+      if(ageDays <= HAZARD_LIFETIME_DAYS){
+        createMarker(item.id, L.latLng(parseFloat(item.Lat), parseFloat(item.Lng)), item.Type, item.Timestamp);
+      }
+    }
+  });
+});
+
+// Map click to add hazard
+map.on('click', function(e){
+  if(map._popup) map.closePopup();
+  const popupContent = `<div class="popup-buttons">
+      <button class="hazard-btn Construction" data-type="Construction">Construction</button>
+      <button class="hazard-btn PoorRoad" data-type="Poor Road Condition">Poor Road Condition</button>
+      <button class="hazard-btn Debris" data-type="Debris">Debris</button>
+    </div>`;
+  L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
+
+  setTimeout(()=>{
+    document.querySelectorAll('.hazard-btn').forEach(btn=>{
+      btn.addEventListener('click', function(){
+        const type = this.getAttribute('data-type');
+        const id = nextId++;
+        const timestamp = new Date().toISOString();
+        createMarker(id, e.latlng, type, timestamp);
+        showNotification(type);
+
+        fetch(SHEETDB_URL, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ data:[{id:id,Lat:e.latlng.lat,Lng:e.latlng.lng,Type:type,Timestamp:timestamp}] })
+        });
+
+        map.closePopup();
+      });
+    });
+  },50);
+});
+
+// Edit hazard
+function editHazard(id){
+  const newType = prompt("Enter new hazard type: Construction, Poor Road Condition, Debris");
+  if(newType && ["Construction","Poor Road Condition","Debris"].includes(newType)){
+    markers[id].marker.setStyle({ color:getColor(newType) });
+    markers[id].type = newType;
+    markers[id].marker.setPopupContent(generatePopupContent(id,newType,new Date().toISOString()));
+
+    fetch(`${SHEETDB_URL}/id/${id}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ data:[{Type:newType,Timestamp:new Date().toISOString()}] })
+    });
+  } else alert("Invalid hazard type");
+}
+
+// Delete hazard
+function deleteHazard(id){
+  map.removeLayer(markers[id].marker);
+  delete markers[id];
+  fetch(`${SHEETDB_URL}/id/${id}`,{ method:'DELETE' });
+}
+
+// Add legend
+const legend = L.control({position:'topright'});
+legend.onAdd = function(map){
+  const div = L.DomUtil.create('div','legend');
+  div.innerHTML = "<h4>Legend</h4>";
+
+  // Hazards
+  div.innerHTML += "<b>Hazards</b><br>";
+  div.innerHTML += '<span style="background: orange"></span> Construction<br>';
+  div.innerHTML += '<span style="background: red"></span> Poor Road Condition<br>';
+  div.innerHTML += '<span style="background: yellow"></span> Debris<br><br>';
+
+  // Bike lanes
+  div.innerHTML += "<b>Bike Lanes</b><br>";
+  div.innerHTML += '<span style="background:#007bff"></span> Signed Route / Sharrows<br>';
+  div.innerHTML += '<span style="background:#28a745"></span> Bike Lane / Contraflow / Buffered<br>';
+  div.innerHTML += '<span style="background:#6f42c1"></span> Multi-Use Trail / Cycle Track<br>';
+
+
+  return div;
+};
+legend.addTo(map);
+</script>
+</body>
+</html>
