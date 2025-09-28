@@ -1,41 +1,27 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>BikeSafe TO</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<meta charset="UTF-8">
+<title>BikeSafe TO</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-geosearch@3.1.0/dist/geosearch.css"/>
 <style>
   body, html { margin:0; padding:0; height:100%; font-family: Arial, sans-serif; }
   #map { height:100%; width:100%; }
-
   .popup-buttons, .popup-edit { display:flex; flex-direction:column; gap:10px; text-align:center; }
-
-  /* Double the size of buttons */
   .hazard-btn, .popup-edit button { 
-    padding:10px 20px; 
-    font-size:28px; 
-    font-weight:bold; 
-    cursor:pointer; 
-    border:none; 
-    border-radius:5px; 
-    color:white; 
+    padding:10px 20px; font-size:28px; font-weight:bold; cursor:pointer; border:none; border-radius:5px; color:white; 
   }
-
   .Construction { background-color: orange; }
   .PoorRoad { background-color: red; }
   .Debris { background-color: yellow; color:black; }
-
   .legend { background:white; padding:16px; line-height:1.8; border-radius:7px; box-shadow:0 0 5px rgba(0,0,0,0.3); font-size:16px; min-width:180px; }
   .legend span { display:inline-block; width:12px; height:12px; margin-right:5px; vertical-align:middle; }
   .legend h4 { margin:0 0 7px 0; font-size:16px; }
-
   #notification { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:5px; display:none; font-weight:bold; z-index:1000; box-shadow:0 0 5px rgba(0,0,0,0.3); }
-
-  /* Edit/Delete button colors */
-  .popup-edit button:nth-child(1) { background-color: #007bff; } /* Edit */
-  .popup-edit button:nth-child(2) { background-color: #dc3545; } /* Delete */
+  .popup-edit button:nth-child(1) { background-color: #007bff; }
+  .popup-edit button:nth-child(2) { background-color: #dc3545; }
 </style>
-
 </head>
 <body>
 
@@ -43,34 +29,33 @@
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-geosearch@3.1.0/dist/bundle.min.js"></script>
+
 <script>
 const SHEETDB_URL = 'https://sheetdb.io/api/v1/k1z7j20dp9lms';
 const HAZARD_LIFETIME_DAYS = 7;
-let nextId = 1; // incremental ID
+let nextId = 1;
 const markers = {};
 
-// Initialize map with CARTO Voyager tiles
+// Initialize map
 var map = L.map('map').setView([43.65107, -79.347015], 12);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    subdomains: 'abcd',
-    maxZoom: 19
+    subdomains: 'abcd', maxZoom: 19
 }).addTo(map);
 
-// -------------------------
-// Bike lane color function
-// -------------------------
+// ------------------
+// Bike lane colors
 function getBikeLaneColor(type){
   if(!type) return "gray";
   type = type.trim().toLowerCase();
-  if(type.includes("signed route") || type.includes("sharrow")) return "#007bff"; // blue
-  if(type.includes("bike lane") || type.includes("contraflow")) return "#28a745"; // green
-  if(type.includes("multi-use trail") || type.includes("cycle track")) return "#6f42c1"; // purple
-  if(type.includes("park road")) return "#6f42c1"; // treat as trail
+  if(type.includes("signed route") || type.includes("sharrow")) return "#007bff";
+  if(type.includes("bike lane") || type.includes("contraflow")) return "#28a745";
+  if(type.includes("multi-use trail") || type.includes("cycle track") || type.includes("park road")) return "#6f42c1";
   return "gray";
 }
 
-// Load Toronto Bike Lanes GeoJSON
+// Load bike lanes
 fetch('toronto_bike_lanes.geojson')
   .then(res => res.json())
   .then(bikeGeoJSON => {
@@ -88,9 +73,8 @@ fetch('toronto_bike_lanes.geojson')
   })
   .catch(err => console.error("Error loading GeoJSON:", err));
 
-// -------------------------
-// Hazard functions
-// -------------------------
+// ------------------
+// Hazards
 function getColor(type){
   switch(type){
     case "Construction": return "orange";
@@ -133,7 +117,7 @@ function createMarker(id,latlng,type,timestamp){
   markers[id] = { marker, type, timestamp };
 }
 
-// Load existing hazards from SheetDB
+// Load existing hazards
 fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
   if(data.length>0){
     const ids = data.map(item=>parseInt(item.id));
@@ -179,21 +163,38 @@ map.on('click', function(e){
     });
   },50);
 });
-
 // Edit hazard
 function editHazard(id){
-  const newType = prompt("Enter new hazard type: Construction, Poor Road Condition, Debris");
-  if(newType && ["Construction","Poor Road Condition","Debris"].includes(newType)){
-    markers[id].marker.setStyle({ color:getColor(newType) });
-    markers[id].type = newType;
-    markers[id].marker.setPopupContent(generatePopupContent(id,newType,new Date().toISOString()));
+  const marker = markers[id].marker;
+  marker.closePopup();
 
-    fetch(`${SHEETDB_URL}/id/${id}`, {
-      method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ data:[{Type:newType,Timestamp:new Date().toISOString()}] })
+  const latlng = marker.getLatLng();
+  const popupContent = `<div class="popup-buttons">
+      <button class="hazard-btn Construction" data-type="Construction">Construction</button>
+      <button class="hazard-btn PoorRoad" data-type="Poor Road Condition">Poor Road Condition</button>
+      <button class="hazard-btn Debris" data-type="Debris">Debris</button>
+    </div>`;
+  
+  L.popup().setLatLng(latlng).setContent(popupContent).openOn(map);
+
+  setTimeout(() => {
+    document.querySelectorAll('.hazard-btn').forEach(btn => {
+      btn.addEventListener('click', function(){
+        const newType = this.getAttribute('data-type');
+        marker.setStyle({ color: getColor(newType) });
+        markers[id].type = newType;
+        marker.setPopupContent(generatePopupContent(id, newType, new Date().toISOString()));
+
+        fetch(`${SHEETDB_URL}/id/${id}`, {
+          method:'PATCH',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ data:[{Type:newType, Timestamp:new Date().toISOString()}] })
+        });
+
+        map.closePopup();
+      });
     });
-  } else alert("Invalid hazard type");
+  }, 50);
 }
 
 // Delete hazard
@@ -208,23 +209,46 @@ const legend = L.control({position:'topright'});
 legend.onAdd = function(map){
   const div = L.DomUtil.create('div','legend');
   div.innerHTML = "<h4>Legend</h4>";
-
-  // Hazards
   div.innerHTML += "<b>Hazards</b><br>";
   div.innerHTML += '<span style="background: orange"></span> Construction<br>';
   div.innerHTML += '<span style="background: red"></span> Poor Road Condition<br>';
   div.innerHTML += '<span style="background: yellow"></span> Debris<br><br>';
-
-  // Bike lanes
   div.innerHTML += "<b>Bike Lanes</b><br>";
   div.innerHTML += '<span style="background:#007bff"></span> Signed Route / Sharrows<br>';
   div.innerHTML += '<span style="background:#28a745"></span> Bike Lane / Contraflow / Buffered<br>';
   div.innerHTML += '<span style="background:#6f42c1"></span> Multi-Use Trail / Cycle Track<br>';
-
-
   return div;
 };
 legend.addTo(map);
+
+// ------------------
+// Canadian-only dynamic search bar using Nominatim
+// GTA bounding box: [southwest lon, southwest lat, northeast lon, northeast lat]
+const gtaViewbox = [-79.6393, 43.5810, -79.1169, 43.8555];
+
+const provider = new window.GeoSearch.OpenStreetMapProvider({
+  params: {
+    countrycodes: 'ca',      // limit to Canada
+    addressdetails: 1,
+    limit: 5,
+    viewbox: gtaViewbox.join(','),  // restrict to GTA
+    bounded: 1                       // enforce the bounding box
+  }
+});
+
+const searchControl = new window.GeoSearch.GeoSearchControl({
+  provider: provider,
+  style: 'bar',
+  showMarker: true,
+  showPopup: false,
+  autoComplete: true,
+  autoClose: true,
+  retainZoomLevel: false
+});
+
+map.addControl(searchControl);
+
+
 </script>
 </body>
 </html>
