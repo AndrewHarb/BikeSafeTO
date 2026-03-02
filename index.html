@@ -225,8 +225,7 @@ map.on('click', function(e){
             evt.stopPropagation();
             const type = btn.getAttribute('data-type');
             const id = nextId++;
-            const timestamp = new Date().toISOString();
-
+            const timestamp = new Date().toISOString()
             map.removeLayer(tempMarker);
             tempMarker = null;
 
