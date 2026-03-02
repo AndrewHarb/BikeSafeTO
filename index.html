@@ -18,9 +18,30 @@
   .legend { background:white; padding:16px; line-height:1.8; border-radius:7px; box-shadow:0 0 5px rgba(0,0,0,0.3); font-size:16px; min-width:180px; }
   .legend span { display:inline-block; width:12px; height:12px; margin-right:5px; vertical-align:middle; }
   .legend h4 { margin:0 0 7px 0; font-size:16px; }
-  #notification { position:fixed; top:10px; left:50%; transform:translateX(-50%); padding:10px 20px; border-radius:5px; display:none; font-weight:bold; z-index:1000; box-shadow:0 0 5px rgba(0,0,0,0.3); }
+  #notification { 
+  position: fixed; 
+  top: 500px; 
+  left: 50%; 
+  transform: translateX(-50%); 
+  padding: 20px 40px;   /* doubled from 10px 20px */
+  border-radius: 10px;   /* optional, make corners proportionally bigger */
+  display: none; 
+  font-weight: bold; 
+  font-size: 24px;       /* add this line, larger text */
+  z-index: 1000; 
+  box-shadow: 0 0 5px rgba(0,0,0,0.3); 
+}
   .popup-edit button:nth-child(1) { background-color: #007bff; }
   .popup-edit button:nth-child(2) { background-color: #dc3545; }
+  /* Style for the GeoSearch input */
+.leaflet-control-geosearch input {
+  width: 400px !important;      /* width of the input */
+  height: 50px !important;      /* height of the input */
+  font-size: 16px !important;   /* size of the text */
+  padding: 5px 10px !important; /* top-bottom, left-right spacing */
+  color: black !important;
+}
+
 </style>
 </head>
 <body>
@@ -153,17 +174,122 @@ function createMarker(id, latlng, type, timestamp){
 }
 
 // ------------------
-// Load bike lanes
+// ------------------
+// ------------------
+// Load bike lanes and handle click reporting
 fetch('toronto_bike_lanes.geojson')
-  .then(res=>res.json())
-  .then(geojson=>{
+  .then(res => res.json())
+  .then(geojson => {
     L.geoJSON(geojson, {
-      style: f=>({ color:getBikeLaneColor(f.properties.INFRA_HIGHORDER||f.properties.INFRA_LOWORDER), weight:4, opacity:0.8 }),
-      onEachFeature: (f,l)=>l.bindPopup(`<b>${f.properties.STREET_NAME||'Bike Lane'}</b><br>${f.properties.INFRA_HIGHORDER||f.properties.INFRA_LOWORDER}`)
+      style: f => ({
+        color: getBikeLaneColor(f.properties.INFRA_HIGHORDER || f.properties.INFRA_LOWORDER),
+        weight: 6,
+        opacity: 0.8
+      }),
+      onEachFeature: (f, layer) => {
+        const street = f.properties.STREET_NAME || 'Bike Lane';
+        const laneType = f.properties.INFRA_HIGHORDER || f.properties.INFRA_LOWORDER;
+
+        layer.on('click', function(e){
+          const clickedLatLng = e.latlng;
+
+          // Remove existing popup (first or second)
+          map.closePopup();
+
+          // Move or create temp marker
+          if(tempMarker){
+            tempMarker.setLatLng(clickedLatLng);
+          } else {
+            tempMarker = L.marker(clickedLatLng).addTo(map);
+          }
+
+          // First popup: street + lane type + report hazard button
+          const firstPopupContent = `
+            <b>Street:</b> ${street}<br>
+            <b>Lane type:</b> ${laneType}<br><br>
+            <button class="report-btn" style="padding:10px 20px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer;">
+              Report Hazard
+            </button>
+          `;
+
+          const firstPopup = L.popup({ closeOnClick: false, autoClose: false })
+            .setLatLng(clickedLatLng)
+            .setContent(firstPopupContent)
+            .openOn(map);
+
+          setTimeout(() => {
+            const popupEl = firstPopup.getElement();
+            if(!popupEl) return;
+
+            const reportBtn = popupEl.querySelector('.report-btn');
+            if(reportBtn){
+              reportBtn.onclick = function(evt){
+                evt.stopPropagation();
+
+                // Close the first popup
+                map.closePopup(firstPopup);
+
+                // Second popup: 3 hazard buttons
+                const hazardPopupContent = `
+                  <div class="popup-buttons">
+                    <button class="hazard-btn" data-type="Construction" style="background: orange;">Construction</button>
+                    <button class="hazard-btn" data-type="Poor Road Condition/Debris" style="background: red;">Poor Road Condition/Debris</button>
+                    <button class="hazard-btn" data-type="Car Parked" style="background: yellow; color:black;">Car Parked</button>
+                  </div>
+                `;
+
+                const hazardPopup = L.popup({ closeOnClick: false, autoClose: false })
+                  .setLatLng(clickedLatLng)
+                  .setContent(hazardPopupContent)
+                  .openOn(map);
+
+                const hazardPopupEl = hazardPopup.getElement();
+                if(!hazardPopupEl) return;
+
+                hazardPopupEl.querySelectorAll('.hazard-btn').forEach(btn => {
+                  btn.onclick = function(evt){
+                    evt.stopPropagation();
+
+                    const hazardType = btn.getAttribute('data-type');
+                    const id = nextId++;
+                    const timestamp = new Date().toISOString();
+
+                    // Create final hazard marker
+                    createMarker(id, clickedLatLng, hazardType, timestamp);
+                    showNotification(hazardType);
+
+                    // Send to SheetDB
+                    fetch(SHEETDB_URL, {
+                      method:'POST',
+                      headers:{'Content-Type':'application/json'},
+                      body: JSON.stringify({
+                        data:[{
+                          id,
+                          Lat: clickedLatLng.lat,
+                          Lng: clickedLatLng.lng,
+                          Type: hazardType,
+                          Street: street,
+                          LaneType: laneType,
+                          Timestamp: timestamp
+                        }]
+                      })
+                    });
+
+                    // Remove temp marker and close popup
+                    if(tempMarker){
+                      map.removeLayer(tempMarker);
+                      tempMarker = null;
+                    }
+                    map.closePopup(hazardPopup);
+                  };
+                });
+              };
+            }
+          }, 20); // short delay ensures popup DOM exists
+        });
+      }
     }).addTo(map);
   });
-
-// ------------------
 // Load existing hazards
 fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
   if(data.length>0){
@@ -177,72 +303,6 @@ fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
       }
     }
   });
-});
-
-// ------------------
-map.on('click', function(e){
-  // Remove previous temp marker
-  if(tempMarker){
-    map.removeLayer(tempMarker);
-  }
-
-  // Create temp marker
-  tempMarker = L.marker(e.latlng).addTo(map);
-
-  // Initial popup content
-  const initialPopup = `
-    <div class="popup-buttons">
-      <b>Location:</b><br>
-      Lat: ${e.latlng.lat.toFixed(5)}, Lng: ${e.latlng.lng.toFixed(5)}<br><br>
-      <button class="report-btn" style="padding:10px 20px; font-size:18px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer;">Report Hazard</button>
-    </div>
-  `;
-  tempMarker.bindPopup(initialPopup).openPopup();
-
-  // Small delay to ensure popup DOM exists
-  setTimeout(() => {
-    const popupEl = tempMarker.getPopup().getElement();
-    if(!popupEl) return;
-
-    const reportBtn = popupEl.querySelector('.report-btn');
-    if(reportBtn){
-      reportBtn.onclick = function(evt){
-        evt.stopPropagation();
-
-        // Show hazard type buttons
-        const hazardPopup = `
-          <div class="popup-buttons">
-            <button class="hazard-btn" data-type="Construction" style="background: orange;">Construction</button>
-            <button class="hazard-btn" data-type="Poor Road Condition/Debris" style="background: red;">Poor Road Condition/Debris</button>
-            <button class="hazard-btn" data-type="Car Parked" style="background: yellow; color:black;">Car Parked</button>
-          </div>
-        `;
-        tempMarker.setPopupContent(hazardPopup).openPopup();
-
-        const hazardPopupEl = tempMarker.getPopup().getElement();
-        hazardPopupEl.querySelectorAll('.hazard-btn').forEach(btn=>{
-          btn.onclick = function(evt){
-            evt.stopPropagation();
-            const type = btn.getAttribute('data-type');
-            const id = nextId++;
-            const timestamp = new Date().toISOString()
-            map.removeLayer(tempMarker);
-            tempMarker = null;
-
-            createMarker(id, e.latlng, type, timestamp);
-            showNotification(type);
-
-            // Send data to SheetDB
-            fetch(SHEETDB_URL, {
-              method:'POST',
-              headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({ data:[{ id, Lat:e.latlng.lat, Lng:e.latlng.lng, Type:type, Timestamp:timestamp }] })
-            });
-          };
-        });
-      };
-    }
-  }, 20); // short delay ensures popup exists
 });
 
 
