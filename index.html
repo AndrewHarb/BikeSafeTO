@@ -96,24 +96,21 @@ let tempMarker = null;
 // USER IDENTIFICATION & SUBMISSION LIMITS
 const ADMIN_USERID = 'admin';
 
-// change this logic if you want automatic detection of your own machine;
-// by default it returns false and you can manually set the userId in
-// devtools to "admin" if you are the administrator.
-function isAdminDevice() {
-  // Example heuristics (uncomment/modify as needed):
-  // return location.hostname === 'localhost';
-  // return navigator.userAgent.includes('YourName');
-  return false;
+// Hash your chosen admin password here (run hashPassword('yourpassword') in console to get it)
+const ADMIN_PASSWORD_HASH = '8920bbf254c12c68f6f7272f940e1d061cf40500ddf7f5ae5f48c3a79d827c6e';  // REPLACE THIS WITH YOUR HASH
+
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function getUserId() {
   let id = localStorage.getItem('userId');
   if (!id) {
-    if (isAdminDevice()) {
-      id = ADMIN_USERID;
-    } else {
-      id = 'user-' + Math.random().toString(36).substr(2,6);
-    }
+    id = 'user-' + Math.random().toString(36).substr(2,6);
     localStorage.setItem('userId', id);
   }
   return id;
@@ -560,6 +557,30 @@ fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
   });
 });
 
+
+// ------------------
+// Admin login control
+const adminControl = L.control({ position: 'bottomleft' });
+adminControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'admin-login');
+  div.innerHTML = `<button style="padding:8px 12px; font-size:14px; border:none; border-radius:5px; background:#dc3545; color:white; cursor:pointer;">Admin Login</button>`;
+  
+  div.firstChild.onclick = async () => {
+    const password = prompt('Enter admin password:');
+    if (!password) return;
+    const hash = await hashPassword(password);
+    if (hash === ADMIN_PASSWORD_HASH) {
+      localStorage.setItem('userId', 'admin');
+      alert('Logged in as admin. Reloading...');
+      location.reload();
+    } else {
+      alert('Incorrect password.');
+    }
+  };
+  
+  return div;
+};
+adminControl.addTo(map);
 
 // ------------------
 // Legend
