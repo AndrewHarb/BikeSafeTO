@@ -41,33 +41,7 @@
   padding: 5px 10px !important; /* top-bottom, left-right spacing */
   color: black !important;
 }
-<style>
-/* ------------------ Zoom control adjustments ------------------ */
-.leaflet-control-zoom {
-  top: 400px !important;       /* move down from top */
-  left: 40px !important;      /* move in from left */
-  width: 100px;                /* total width of the box */
-}
 
-.leaflet-control-zoom a {
-  width: 100px !important;     /* width of each button */
-  height: 80px !important;    /* height of each button */
-  line-height: 40px !important; /* center the + / - text */
-  font-size: 20px !important;   /* size of + / - symbols */
-}
-
-/* ------------------ Recenter button adjustments ------------------ */
-.recenter-btn {
-  top: 200px !important;       /* adjust vertical position */
-  left: 40px !important;       /* same as zoom */
-}
-
-.recenter-btn button {
-  padding: 20px 32px;          /* bigger clickable area */
-  font-size: 25px;             /* text size */
-  border-radius: 30px;          /* round corners */
-}
-</style>
 </style>
 </head>
 <body>
@@ -99,13 +73,12 @@ let userMarker = null;
 let accuracyCircle = null;
 let followUser = true;       // whether to follow the user
 const followThreshold = 40;  // 40 pixels before stopping follow
-let firstLocation = true;    // only center zoom on first location
 
 function onLocationFound(e) {
   const latlng = e.latlng;
   const radius = e.accuracy;
 
-  // Update or create marker & circle
+  // Remove old marker and circle
   if (userMarker) {
     userMarker.setLatLng(latlng);
     accuracyCircle.setLatLng(latlng).setRadius(radius);
@@ -123,15 +96,12 @@ function onLocationFound(e) {
       fillColor: "#007bff",
       fillOpacity: 0.15
     }).addTo(map);
+
+    // Center first time
+    map.setView(latlng, 15);
   }
 
-  // ------------------ CENTER FIRST TIME ------------------
-  if (firstLocation) {
-    map.setView(latlng, 16, { animate: true }); // zoomed-in start
-    firstLocation = false;
-  }
-
-  // Smooth follow if still following
+  // Only fly if following
   if (followUser) {
     map.flyTo(latlng, map.getZoom(), { duration: 0.8 });
   }
@@ -151,7 +121,7 @@ map.on('drag', () => {
   }
 });
 
-// Recenter button
+// Optional: button to recenter and resume following
 const recenterBtn = L.control({ position: 'topleft' });
 recenterBtn.onAdd = function () {
   const div = L.DomUtil.create('div', 'recenter-btn');
@@ -159,7 +129,7 @@ recenterBtn.onAdd = function () {
   div.firstChild.onclick = () => {
     if (userMarker) {
       followUser = true;
-      map.flyTo(userMarker.getLatLng(), 16, { duration: 0.8 }); // recenter + zoom
+      map.flyTo(userMarker.getLatLng(), map.getZoom(), { duration: 0.8 });
     }
   };
   return div;
@@ -170,6 +140,7 @@ recenterBtn.addTo(map);
 map.on('locationfound', onLocationFound);
 map.on('locationerror', onLocationError);
 map.locate({ watch: true, enableHighAccuracy: true });
+
 // ------------------
 // Utility functions
 function getBikeLaneColor(type){
