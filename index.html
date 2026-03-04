@@ -35,13 +35,46 @@
   .popup-edit button:nth-child(2) { background-color: #dc3545; }
   /* Style for the GeoSearch input */
 .leaflet-control-geosearch input {
-  width: 400px !important;      /* width of the input */
+  width: 300px !important;      /* width of the input */
   height: 50px !important;      /* height of the input */
   font-size: 16px !important;   /* size of the text */
   padding: 5px 10px !important; /* top-bottom, left-right spacing */
   color: black !important;
 }
+/* ------------------ */
+/* Zoom + / - buttons */
 
+/* Resize buttons */
+.leaflet-control-zoom a {
+  width: 40px !important;       /* width of buttons */
+  height: 40px !important;      /* height of buttons */
+  font-size: 24px !important;   /* size of + / - */
+  line-height: 40px !important; /* vertical align text */
+}
+
+/* Move zoom buttons */
+.leaflet-control-zoom {
+  top: 80px !important;    /* distance from top */
+  left: 10px !important;   /* distance from left */
+}
+/* ------------------ */
+/* Recenter button */
+
+.recenter-btn {
+  top: 200px !important;    /* adjust vertical position */
+  left: 10px !important;    /* adjust horizontal position */
+  z-index: 1000;
+  position: absolute;       /* make it float */
+}
+.recenter-btn button {
+  transform: scale(1.4);  /* doubles the button size */
+  transform-origin: center center; /* scale from center */
+}
+.recenter-btn button {
+  padding: 10px 16px;       /* doubled from 10px 16px */
+  font-size: 32px;          /* doubled from 16px */
+  border-radius: 12px;      /* optional, double from 6px for proportion */
+}
 </style>
 </head>
 <body>
@@ -132,7 +165,7 @@ recenterBtn.onAdd = function () {
     if (userMarker) {
       followUser = true;
       // Fly to user's current location and zoom to 15
-      map.flyTo(userMarker.getLatLng(), 15, { duration: 0.8 });
+      map.flyTo(userMarker.getLatLng(), 17, { duration: 0.8 });
     }
   };
   
