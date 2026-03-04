@@ -375,17 +375,23 @@ fetch('toronto_bike_lanes.geojson')
 
           // First popup
           const firstPopupContent = `
-            <b>Street:</b> ${street}<br>
-            <b>Lane type:</b> ${laneType}<br><br>
-            <button class="report-btn" style="padding:10px 20px; background:#007bff; color:white; border:none; border-radius:5px; cursor:pointer;">
+            <div style="font-size:22px; margin-bottom:16px;"><b>Street:</b> ${street}</div>
+            <div style="font-size:22px; margin-bottom:16px;"><b>Lane type:</b> ${laneType}</div>
+            <button class="report-btn" style="padding:20px 30px; font-size:22px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer;">
               Report Hazard
             </button>
           `;
 
-          const firstPopup = L.popup({ closeOnClick:false, autoClose:false })
-            .setLatLng(clickedLatLng)
-            .setContent(firstPopupContent)
-            .openOn(map);
+          const firstPopup = L.popup({
+            closeOnClick: false,
+            autoClose: false,
+            maxWidth: 400, // bigger than default 300
+            minWidth: 350,
+            className: 'first-popup' // optional, for custom CSS
+          })
+          .setLatLng(clickedLatLng)
+          .setContent(firstPopupContent)
+          .openOn(map);
 
           setTimeout(() => {
 
