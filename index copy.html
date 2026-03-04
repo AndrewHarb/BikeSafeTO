@@ -93,50 +93,6 @@ const markers = {};
 let tempMarker = null;
 
 // ------------------
-// USER IDENTIFICATION & SUBMISSION LIMITS
-const ADMIN_USERID = 'admin';
-
-// change this logic if you want automatic detection of your own machine;
-// by default it returns false and you can manually set the userId in
-// devtools to "admin" if you are the administrator.
-function isAdminDevice() {
-  // Example heuristics (uncomment/modify as needed):
-  // return location.hostname === 'localhost';
-  // return navigator.userAgent.includes('YourName');
-  return false;
-}
-
-function getUserId() {
-  let id = localStorage.getItem('userId');
-  if (!id) {
-    if (isAdminDevice()) {
-      id = ADMIN_USERID;
-    } else {
-      id = 'user-' + Math.random().toString(36).substr(2,6);
-    }
-    localStorage.setItem('userId', id);
-  }
-  return id;
-}
-
-const USERid = getUserId();
-
-const MAX_HAZARDS = 5;
-function getHazardCount() {
-  return parseInt(localStorage.getItem('hazardCount') || '0', 10);
-}
-function canSubmitHazard() {
-  if (USERid === ADMIN_USERID) return true;       // admins never limited
-  return getHazardCount() < MAX_HAZARDS;
-}
-function recordHazardSubmission() {
-  if (USERid === ADMIN_USERID) return;            // don't count admin reports
-  const cnt = getHazardCount() + 1;
-  localStorage.setItem('hazardCount', cnt);
-}
-
-
-// ------------------
 // Initialize map
 const map = L.map('map').setView([43.65107, -79.347015], 12);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
@@ -263,31 +219,21 @@ function showNotification(type){
 
 // ------------------
 // Marker functions
-function generatePopupContent(id,type,timestamp,owner){
-  // only show edit/delete buttons to the owner or admin
-  let buttons = '';
-  if(owner === USERid || USERid === ADMIN_USERID){
-    buttons = `<br>
-      <div class="popup-edit">
-        <button class="edit-btn" data-id="${id}">Edit</button>
-        <button class="delete-btn" data-id="${id}">Delete</button>
-      </div>`;
-  }
-  return `<b>Hazard:</b> ${type}<br><b>Reported:</b> ${timeAgo(timestamp)}${buttons}`;
+function generatePopupContent(id,type,timestamp){
+  return `<b>Hazard:</b> ${type}<br><b>Reported:</b> ${timeAgo(timestamp)}<br>
+    <div class="popup-edit">
+      <button class="edit-btn" data-id="${id}">Edit</button>
+      <button class="delete-btn" data-id="${id}">Delete</button>
+    </div>`;
 }
 
-function createMarker(id, latlng, type, timestamp, owner){
+function createMarker(id, latlng, type, timestamp){
   const marker = L.circleMarker(latlng, { color:getColor(type), radius:16, fillOpacity:0.7 }).addTo(map);
-  marker.bindPopup(generatePopupContent(id,type,timestamp, owner));
+  marker.bindPopup(generatePopupContent(id,type,timestamp));
 
   marker.on('popupopen', function(){
     const popupEl = marker.getPopup().getElement();
     if(!popupEl) return;
-
-    const hazard = markers[id];
-    const isOwner = hazard.owner === USERid || USERid === ADMIN_USERID;
-    // do not bind edit/delete events if not allowed
-    if(!isOwner) return;
 
     // Edit button
     popupEl.querySelectorAll('.edit-btn').forEach(btn=>{
@@ -311,7 +257,7 @@ function createMarker(id, latlng, type, timestamp, owner){
             const newType = hBtn.getAttribute('data-type');
             hazard.type = newType;
             marker.setStyle({ color:getColor(newType) });
-            marker.setPopupContent(generatePopupContent(id,newType,hazard.timestamp, hazard.owner)).openPopup();
+            marker.setPopupContent(generatePopupContent(id,newType,hazard.timestamp)).openPopup();
 
             // Update SheetDB
             fetch(`${SHEETDB_URL}/id/${id}`, {
@@ -335,7 +281,7 @@ function createMarker(id, latlng, type, timestamp, owner){
     });
   });
 
-  markers[id] = { marker, type, timestamp, owner };
+  markers[id] = { marker, type, timestamp };
 }
 
 // Function for invisible click layer to snap clicks to nearest point on the bike lane
@@ -458,13 +404,6 @@ fetch('toronto_bike_lanes.geojson')
             reportBtn.onclick = function(evt){
               evt.stopPropagation();
 
-              // limit before opening the hazard-type chooser
-              if(!canSubmitHazard()){
-                alert(`You have already submitted the maximum of ${MAX_HAZARDS} hazards.`);
-                map.closePopup(firstPopup);
-                return;
-              }
-
               map.closePopup(firstPopup);
 
               const hazardPopupContent = `
@@ -488,21 +427,11 @@ fetch('toronto_bike_lanes.geojson')
                 btn.onclick = function(evt){
                   evt.stopPropagation();
 
-                  // check again right before creation
-                  if(!canSubmitHazard()){
-                    alert(`You have already submitted the maximum of ${MAX_HAZARDS} hazards.`);
-                    map.closePopup(hazardPopup);
-                    return;
-                  }
-
                   const hazardType = btn.getAttribute('data-type');
                   const id = nextId++;
                   const timestamp = new Date().toISOString();
 
-                  // record submission before sending
-                  recordHazardSubmission();
-
-                  createMarker(id, clickedLatLng, hazardType, timestamp, USERid);
+                  createMarker(id, clickedLatLng, hazardType, timestamp);
                   showNotification(hazardType);
 
                   fetch(SHEETDB_URL, {
@@ -516,8 +445,7 @@ fetch('toronto_bike_lanes.geojson')
                         Type: hazardType,
                         Street: street,
                         LaneType: laneType,
-                        Timestamp: timestamp,
-                        USERid: USERid
+                        Timestamp: timestamp
                       }]
                     })
                   });
@@ -548,13 +476,7 @@ fetch(SHEETDB_URL).then(res=>res.json()).then(data=>{
     if(item.Lat && item.Lng && item.Type && item.Timestamp && item.id){
       const ageDays = (new Date() - new Date(item.Timestamp))/(1000*60*60*24);
       if(ageDays <= HAZARD_LIFETIME_DAYS){
-        createMarker(
-          item.id,
-          L.latLng(parseFloat(item.Lat), parseFloat(item.Lng)),
-          item.Type,
-          item.Timestamp,
-          item.USERid || ''
-        );
+        createMarker(item.id, L.latLng(parseFloat(item.Lat), parseFloat(item.Lng)), item.Type, item.Timestamp);
       }
     }
   });
