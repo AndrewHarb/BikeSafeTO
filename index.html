@@ -122,16 +122,20 @@ map.on('drag', () => {
 });
 
 // Optional: button to recenter and resume following
+// Recenter button
 const recenterBtn = L.control({ position: 'topleft' });
 recenterBtn.onAdd = function () {
   const div = L.DomUtil.create('div', 'recenter-btn');
   div.innerHTML = `<button style="padding:8px 12px; font-size:14px; border:none; border-radius:5px; background:#007bff; color:white; cursor:pointer;">Recenter</button>`;
+  
   div.firstChild.onclick = () => {
     if (userMarker) {
       followUser = true;
-      map.flyTo(userMarker.getLatLng(), map.getZoom(), { duration: 0.8 });
+      // Fly to user's current location and zoom to 15
+      map.flyTo(userMarker.getLatLng(), 15, { duration: 0.8 });
     }
   };
+  
   return div;
 };
 recenterBtn.addTo(map);
