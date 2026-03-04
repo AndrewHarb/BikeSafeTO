@@ -67,54 +67,80 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
   subdomains: 'abcd', maxZoom: 19
 }).addTo(map);
 // ------------------
+// ------------------
 // USER GPS LOCATION
-
 let userMarker = null;
 let accuracyCircle = null;
+let followUser = true;       // whether to follow the user
+const followThreshold = 40;  // 40 pixels before stopping follow
 
 function onLocationFound(e) {
-
+  const latlng = e.latlng;
   const radius = e.accuracy;
 
-  // Remove old marker if it exists
+  // Remove old marker and circle
   if (userMarker) {
-    map.removeLayer(userMarker);
-    map.removeLayer(accuracyCircle);
+    userMarker.setLatLng(latlng);
+    accuracyCircle.setLatLng(latlng).setRadius(radius);
+  } else {
+    userMarker = L.circleMarker(latlng, {
+      radius: 8,
+      color: "#007bff",
+      fillColor: "#007bff",
+      fillOpacity: 1
+    }).addTo(map);
+
+    accuracyCircle = L.circle(latlng, {
+      radius: radius,
+      color: "#007bff",
+      fillColor: "#007bff",
+      fillOpacity: 0.15
+    }).addTo(map);
+
+    // Center first time
+    map.setView(latlng, 15);
   }
 
-  // Blue dot
-  userMarker = L.circleMarker(e.latlng, {
-    radius: 8,
-    color: "#007bff",
-    fillColor: "#007bff",
-    fillOpacity: 1
-  }).addTo(map);
-
-  // Accuracy circle
-  accuracyCircle = L.circle(e.latlng, {
-    radius: radius,
-    color: "#007bff",
-    fillColor: "#007bff",
-    fillOpacity: 0.15
-  }).addTo(map);
-
-  // Optional: auto center first time only
-  // map.setView(e.latlng, 15);
+  // Only fly if following
+  if (followUser) {
+    map.flyTo(latlng, map.getZoom(), { duration: 0.8 });
+  }
 }
 
 function onLocationError(e) {
   console.log("Location access denied or unavailable.");
 }
 
-// Ask for location continuously
+// Stop following if user drags more than threshold
+map.on('drag', () => {
+  if (!userMarker) return;
+  const mapCenterPoint = map.latLngToContainerPoint(map.getCenter());
+  const userPoint = map.latLngToContainerPoint(userMarker.getLatLng());
+  if (mapCenterPoint.distanceTo(userPoint) > followThreshold) {
+    followUser = false;
+  }
+});
+
+// Optional: button to recenter and resume following
+const recenterBtn = L.control({ position: 'topleft' });
+recenterBtn.onAdd = function () {
+  const div = L.DomUtil.create('div', 'recenter-btn');
+  div.innerHTML = `<button style="padding:8px 12px; font-size:14px; border:none; border-radius:5px; background:#007bff; color:white; cursor:pointer;">Recenter</button>`;
+  div.firstChild.onclick = () => {
+    if (userMarker) {
+      followUser = true;
+      map.flyTo(userMarker.getLatLng(), map.getZoom(), { duration: 0.8 });
+    }
+  };
+  return div;
+};
+recenterBtn.addTo(map);
+
+// Start watching position continuously
 map.on('locationfound', onLocationFound);
 map.on('locationerror', onLocationError);
+map.locate({ watch: true, enableHighAccuracy: true });
 
-// Start watching position
-map.locate({
-  watch: true,
-  enableHighAccuracy: true
-});
 // ------------------
 // Utility functions
 function getBikeLaneColor(type){
