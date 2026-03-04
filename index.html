@@ -66,7 +66,55 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
   subdomains: 'abcd', maxZoom: 19
 }).addTo(map);
+// ------------------
+// USER GPS LOCATION
 
+let userMarker = null;
+let accuracyCircle = null;
+
+function onLocationFound(e) {
+
+  const radius = e.accuracy;
+
+  // Remove old marker if it exists
+  if (userMarker) {
+    map.removeLayer(userMarker);
+    map.removeLayer(accuracyCircle);
+  }
+
+  // Blue dot
+  userMarker = L.circleMarker(e.latlng, {
+    radius: 8,
+    color: "#007bff",
+    fillColor: "#007bff",
+    fillOpacity: 1
+  }).addTo(map);
+
+  // Accuracy circle
+  accuracyCircle = L.circle(e.latlng, {
+    radius: radius,
+    color: "#007bff",
+    fillColor: "#007bff",
+    fillOpacity: 0.15
+  }).addTo(map);
+
+  // Optional: auto center first time only
+  // map.setView(e.latlng, 15);
+}
+
+function onLocationError(e) {
+  console.log("Location access denied or unavailable.");
+}
+
+// Ask for location continuously
+map.on('locationfound', onLocationFound);
+map.on('locationerror', onLocationError);
+
+// Start watching position
+map.locate({
+  watch: true,
+  enableHighAccuracy: true
+});
 // ------------------
 // Utility functions
 function getBikeLaneColor(type){
